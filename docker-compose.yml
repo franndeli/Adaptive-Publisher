@@ -1,65 +1,65 @@
 version: '2.3'
 services:
-  # redis:
-  #   image: redis:5.0.3
-  #   ports:
-  #     - "6379:6379"
-  # jaeger:
-  #   image: jaegertracing/all-in-one:1.24
-  #   command: --log-level=debug
-  #   ports:
-  #     - 5775:5775/udp
-  #     - 6831:6831/udp
-  #     - 6832:6832/udp
-  #     - 5778:5778
-  #     - 16686:16686
-  #     - 14268:14268
-  #     - 9411:9411
+  redis:
+    image: redis:5.0.3
+    ports:
+      - "6379:6379"
+  jaeger:
+    image: jaegertracing/all-in-one:1.24
+    command: --log-level=debug
+    ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14268:14268
+      - 9411:9411
 
-  service:
-    image: arruda/adaptive-publisher:master
-    command: ./adaptive_publisher/run.py
-    # depends_on:
-    #   - redis
-    #   - jaeger
-    build:
-      context: '.'
-      dockerfile: 'Dockerfile-rpi'
-    network_mode: "host"
-    environment:
-      - PYTHONUNBUFFERED=0
-      - REDIS_ADDRESS=${REDIS_ADDRESS}
-      - REDIS_PORT=${REDIS_PORT}
-      - REDIS_EXPIRATION_TIME=${REDIS_EXPIRATION_TIME}
-      - TRACER_REPORTING_HOST=${TRACER_REPORTING_HOST}
-      - TRACER_REPORTING_PORT=${TRACER_REPORTING_PORT}
-      - SERVICE_STREAM_KEY=${SERVICE_STREAM_KEY}
-      - REGISTER_EVAL_DATA=${REGISTER_EVAL_DATA}
-      - EVENT_GENERATOR_TYPE=${EVENT_GENERATOR_TYPE}
-      - EARLY_FILTERING_PIPELINE_NAME=${EARLY_FILTERING_PIPELINE_NAME}
-      - DEFAULT_OI_LIST=${DEFAULT_OI_LIST}
-      - USE_OCV_TRANSFORMS=${USE_OCV_TRANSFORMS}
-      - DEFAULT_CACHED_FRAME_RATE_MULTIPLIER=${DEFAULT_CACHED_FRAME_RATE_MULTIPLIER}
-      - DEFAULT_DIFF_THRESHOLD=${DEFAULT_DIFF_THRESHOLD}
-      - DEFAULT_CLS_THRESHOLDS=${DEFAULT_CLS_THRESHOLDS}
-      - DEFAULT_OBJ_THRESHOLD=${DEFAULT_OBJ_THRESHOLD}
-      - CLS_MODEL_ID=${CLS_MODEL_ID}
-      - PUBLISHER_INPUT_SOURCE=${PUBLISHER_INPUT_SOURCE}
-      - PUBLISHER_ID=${PUBLISHER_ID}
-      - PUBLISHER_FPS=${PUBLISHER_FPS}
-      - PUBLISHER_RESOLUTION=${PUBLISHER_RESOLUTION}
-      - LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED=${LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED}
-      - LISTEN_EVENT_TYPE_QUERY_CREATED=${LISTEN_EVENT_TYPE_QUERY_CREATED}
-      - LISTEN_EVENT_TYPE_QUERY_REMOVED=${LISTEN_EVENT_TYPE_QUERY_REMOVED}
-      - PUB_EVENT_TYPE_PUBLISHER_CREATED=${PUB_EVENT_TYPE_PUBLISHER_CREATED}
-      - PUB_EVENT_TYPE_PUBLISHER_REMOVED=${PUB_EVENT_TYPE_PUBLISHER_REMOVED}
-      - IGNORE_SEND_IMAGE=${IGNORE_SEND_IMAGE}
-      - REDUCE_SCALE=${REDUCE_SCALE}
-      - PUB_QUEUE_MAX_SIZE=${PUB_QUEUE_MAX_SIZE}
-      - LOGGING_LEVEL=${LOGGING_LEVEL}
-    volumes:
-      - ./data:/service/data
-      - ./adaptive_publisher:/service/adaptive_publisher
-#      - /etc/localtime:/etc/localtime:ro
-#      - /media/arruda/Elements1/Datasets/Cut/TS-D-Q-1.mp4:/data/TS-D-Q-1.mp4
-#      - /media/arruda/Elements1/Datasets/Cut/TS-D-B-2.mp4:/data/TS-D-B-2.mp4
+  # service:
+#     image: arruda/adaptive-publisher:master
+#     command: ./adaptive_publisher/run.py
+#     # depends_on:
+#     #   - redis
+#     #   - jaeger
+#     build:
+#       context: '.'
+#       dockerfile: 'Dockerfile-rpi'
+#     network_mode: "host"
+#     environment:
+#       - PYTHONUNBUFFERED=0
+#       - REDIS_ADDRESS=${REDIS_ADDRESS}
+#       - REDIS_PORT=${REDIS_PORT}
+#       - REDIS_EXPIRATION_TIME=${REDIS_EXPIRATION_TIME}
+#       - TRACER_REPORTING_HOST=${TRACER_REPORTING_HOST}
+#       - TRACER_REPORTING_PORT=${TRACER_REPORTING_PORT}
+#       - SERVICE_STREAM_KEY=${SERVICE_STREAM_KEY}
+#       - REGISTER_EVAL_DATA=${REGISTER_EVAL_DATA}
+#       - EVENT_GENERATOR_TYPE=${EVENT_GENERATOR_TYPE}
+#       - EARLY_FILTERING_PIPELINE_NAME=${EARLY_FILTERING_PIPELINE_NAME}
+#       - DEFAULT_OI_LIST=${DEFAULT_OI_LIST}
+#       - USE_OCV_TRANSFORMS=${USE_OCV_TRANSFORMS}
+#       - DEFAULT_CACHED_FRAME_RATE_MULTIPLIER=${DEFAULT_CACHED_FRAME_RATE_MULTIPLIER}
+#       - DEFAULT_DIFF_THRESHOLD=${DEFAULT_DIFF_THRESHOLD}
+#       - DEFAULT_CLS_THRESHOLDS=${DEFAULT_CLS_THRESHOLDS}
+#       - DEFAULT_OBJ_THRESHOLD=${DEFAULT_OBJ_THRESHOLD}
+#       - CLS_MODEL_ID=${CLS_MODEL_ID}
+#       - PUBLISHER_INPUT_SOURCE=${PUBLISHER_INPUT_SOURCE}
+#       - PUBLISHER_ID=${PUBLISHER_ID}
+#       - PUBLISHER_FPS=${PUBLISHER_FPS}
+#       - PUBLISHER_RESOLUTION=${PUBLISHER_RESOLUTION}
+#       - LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED=${LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED}
+#       - LISTEN_EVENT_TYPE_QUERY_CREATED=${LISTEN_EVENT_TYPE_QUERY_CREATED}
+#       - LISTEN_EVENT_TYPE_QUERY_REMOVED=${LISTEN_EVENT_TYPE_QUERY_REMOVED}
+#       - PUB_EVENT_TYPE_PUBLISHER_CREATED=${PUB_EVENT_TYPE_PUBLISHER_CREATED}
+#       - PUB_EVENT_TYPE_PUBLISHER_REMOVED=${PUB_EVENT_TYPE_PUBLISHER_REMOVED}
+#       - IGNORE_SEND_IMAGE=${IGNORE_SEND_IMAGE}
+#       - REDUCE_SCALE=${REDUCE_SCALE}
+#       - PUB_QUEUE_MAX_SIZE=${PUB_QUEUE_MAX_SIZE}
+#       - LOGGING_LEVEL=${LOGGING_LEVEL}
+#     volumes:
+#       - ./data:/service/data
+#       - ./adaptive_publisher:/service/adaptive_publisher
+# #      - /etc/localtime:/etc/localtime:ro
+# #      - /media/arruda/Elements1/Datasets/Cut/TS-D-Q-1.mp4:/data/TS-D-Q-1.mp4
+# #      - /media/arruda/Elements1/Datasets/Cut/TS-D-B-2.mp4:/data/TS-D-B-2.mp4
