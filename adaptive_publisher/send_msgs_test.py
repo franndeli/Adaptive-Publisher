@@ -45,9 +45,9 @@ def main():
                 'buffer_stream': {
                     'publisher_id': PUBLISHER_ID,
                     'buffer_stream_key': '5547a5a4bbf71facde9441b2b368e755',
-                    'source': 'doesntmatter',
-                    'resolution': 'doesntmatter',
-                    'fps': 'doesntmatter'
+                    'source': '/service/data/Cars_On_Highway.mp4',
+                    'resolution': '1920x1080',
+                    'fps': '30'
                 },
                 'service_chain': 'doesntmatter',
             }
