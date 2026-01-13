@@ -23,6 +23,8 @@ RUN mkdir -p /service/adaptive_publisher/ && \
 RUN pip install -r requirements.txt && \
     rm -rf /tmp/pip* /root/.cached
 
+RUN pip uninstall -y ultralytics || true
+
 
 # /root/.cache/torch/hub/
 ## add all the rest of the code and install the actual package

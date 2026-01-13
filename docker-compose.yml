@@ -25,7 +25,19 @@ services:
     build:
       context: '.'
       dockerfile: 'Dockerfile'
-    network_mode: "host"
+    # network_mode: "host"
+
+    depends_on:
+      - redis
+      - jaeger
+
+    command: python /service/adaptive_publisher/run.py
+
+    mem_limit: 4g
+    cpus: "1.0"
+    cpuset: "0"
+    cpu_shares: 256
+
     environment:
       - PYTHONUNBUFFERED=0
       - REDIS_ADDRESS=${REDIS_ADDRESS}
@@ -43,7 +55,7 @@ services:
       - DEFAULT_DIFF_THRESHOLD=${DEFAULT_DIFF_THRESHOLD}
       - DEFAULT_CLS_THRESHOLDS=${DEFAULT_CLS_THRESHOLDS}
       - DEFAULT_OBJ_THRESHOLD=${DEFAULT_OBJ_THRESHOLD}
-      - CLS_MODEL_ID=${CLS_MODEL_ID}
+      - CLS_MODEL_ID=${CLS_MODEL_ID:-}
       - PUBLISHER_INPUT_SOURCE=${PUBLISHER_INPUT_SOURCE}
       - PUBLISHER_ID=${PUBLISHER_ID}
       - PUBLISHER_FPS=${PUBLISHER_FPS}
@@ -53,9 +65,9 @@ services:
       - LISTEN_EVENT_TYPE_QUERY_REMOVED=${LISTEN_EVENT_TYPE_QUERY_REMOVED}
       - PUB_EVENT_TYPE_PUBLISHER_CREATED=${PUB_EVENT_TYPE_PUBLISHER_CREATED}
       - PUB_EVENT_TYPE_PUBLISHER_REMOVED=${PUB_EVENT_TYPE_PUBLISHER_REMOVED}
-      - IGNORE_SEND_IMAGE=${IGNORE_SEND_IMAGE}
-      - REDUCE_SCALE=${REDUCE_SCALE}
-      - PUB_QUEUE_MAX_SIZE=${PUB_QUEUE_MAX_SIZE}
+      - IGNORE_SEND_IMAGE=${IGNORE_SEND_IMAGE:-False}
+      - REDUCE_SCALE=${REDUCE_SCALE:-1}
+      - PUB_QUEUE_MAX_SIZE=${PUB_QUEUE_MAX_SIZE:-200}
       - LOGGING_LEVEL=${LOGGING_LEVEL}
     volumes:
       - ./data:/service/data

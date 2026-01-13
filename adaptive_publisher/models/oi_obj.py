@@ -32,7 +32,12 @@ class OIObjModel(BaseModel):
 
     def setup(self):
         cpu_device = torch.device('cpu')
-        self.model = torch.hub.load('ultralytics/yolov5', OBJ_MODEL_NAME, pretrained=True)
+        self.model = torch.hub.load(
+    'ultralytics/yolov5:v7.0',   # pin to stable release
+    OBJ_MODEL_NAME,              # e.g. 'yolov5n'
+    pretrained=True
+)
+
         self.model.eval()
         self.setup_oi_ids()
 
