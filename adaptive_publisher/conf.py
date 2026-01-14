@@ -61,7 +61,13 @@ TMP_IGNORE_N_FRAMES = config('TMP_IGNORE_N_FRAMES', default=300, cast=int)
 
 REGISTER_EVAL_DATA = config('REGISTER_EVAL_DATA', default=True, cast=bool)
 
-REDUCE_SCALE = config('REDUCE_SCALE', default=1, cast=int)
+def safe_int_cast(value):
+    """Safely cast to int, handling empty strings"""
+    if value == '' or value is None:
+        return 1
+    return int(value)
+
+REDUCE_SCALE = config('REDUCE_SCALE', default=1, cast=safe_int_cast)
 
 IGNORE_SEND_IMAGE = config('IGNORE_SEND_IMAGE', default=False, cast=bool)
 
@@ -106,3 +112,8 @@ SERVICE_DETAILS = None
 # }
 
 LOGGING_LEVEL = config('LOGGING_LEVEL', default='DEBUG')
+
+# Micro-batching configuration
+USE_MICRO_BATCHING = config('USE_MICRO_BATCHING', default=True, cast=bool)
+BATCH_SIZE = config('BATCH_SIZE', default=3, cast=int)
+BATCH_TIMEOUT = config('BATCH_TIMEOUT', default=0.5, cast=float)  # seconds
