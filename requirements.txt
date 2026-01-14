@@ -2,7 +2,7 @@
 pillow==10.4.0
 torch==2.0.1+cpu
 torchvision==0.15.2+cpu
-numpy==1.21.6
+numpy==1.22.4
 opencv-python==4.8.1.78
 networkx==3.1
 redis==4.6.0
@@ -11,4 +11,6 @@ python-decouple==3.1
 walrus==0.7.1
 gitdb==4.0.11
 gitpython==3.1.43
+lz4
+qoi==0.6
 -e file:./#egg=adaptive_publisher

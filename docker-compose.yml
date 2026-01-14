@@ -18,7 +18,7 @@ services:
 
   service:
     image: arruda/adaptive-publisher:master
-    command: ./adaptive_publisher/run.py
+    command: python ./adaptive_publisher/run.py
     depends_on:
       - redis
       - jaeger
@@ -26,6 +26,10 @@ services:
       context: '.'
       dockerfile: 'Dockerfile'
     # network_mode: "host" # breaks things on windows!
+    mem_limit: 4g
+    cpus: "1.0"
+    cpuset: "0"
+    cpu_shares: 256
     environment:
       - PYTHONUNBUFFERED=0
       - REDIS_ADDRESS=${REDIS_ADDRESS}
