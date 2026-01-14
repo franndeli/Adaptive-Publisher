@@ -1,31 +1,31 @@
 version: '2.3'
 services:
-  # redis:
-  #   image: redis:5.0.3
-  #   ports:
-  #     - "6379:6379"
-  # jaeger:
-  #   image: jaegertracing/all-in-one:1.24
-  #   command: --log-level=debug
-  #   ports:
-  #     - 5775:5775/udp
-  #     - 6831:6831/udp
-  #     - 6832:6832/udp
-  #     - 5778:5778
-  #     - 16686:16686
-  #     - 14268:14268
-  #     - 9411:9411
+  redis:
+    image: redis:5.0.3
+    ports:
+      - "6379:6379"
+  jaeger:
+    image: jaegertracing/all-in-one:1.24
+    command: --log-level=debug
+    ports:
+      - 5775:5775/udp
+      - 6831:6831/udp
+      - 6832:6832/udp
+      - 5778:5778
+      - 16686:16686
+      - 14268:14268
+      - 9411:9411
 
   service:
     image: arruda/adaptive-publisher:master
     command: ./adaptive_publisher/run.py
-    # depends_on:
-    #   - redis
-    #   - jaeger
+    depends_on:
+      - redis
+      - jaeger
     build:
       context: '.'
-      dockerfile: 'Dockerfile-rpi'
-    network_mode: "host"
+      dockerfile: 'Dockerfile'
+    # network_mode: "host" # breaks things on windows!
     environment:
       - PYTHONUNBUFFERED=0
       - REDIS_ADDRESS=${REDIS_ADDRESS}

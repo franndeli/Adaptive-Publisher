@@ -5,7 +5,6 @@ torchvision==0.15.2+cpu
 numpy==1.21.6
 opencv-python==4.8.1.78
 networkx==3.1
-ultralytics==8.0.138
 redis==4.6.0
 event-service-utils
 python-decouple==3.1

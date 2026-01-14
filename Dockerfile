@@ -10,8 +10,8 @@ WORKDIR /service
 RUN wget -O yolov5n.pt https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5n.pt
 
 RUN mkdir -p /torchhome/hub
-env TORCH_HOME=/torchhome
-RUN git clone --depth 1 https://github.com/ultralytics/yolov5.git /torchhome/hub/ultralytics_yolov5_master && \
+ENV TORCH_HOME=/torchhome
+RUN git clone --branch v6.2 --depth 1 https://github.com/ultralytics/yolov5.git /torchhome/hub/ultralytics_yolov5_master && \
     rm -r /torchhome/hub/ultralytics_yolov5_master/.git
 
 
@@ -21,6 +21,7 @@ RUN mkdir -p /service/adaptive_publisher/ && \
     touch /service/adaptive_publisher/__init__.py
 
 RUN pip install -r requirements.txt && \
+    pip install -r /torchhome/hub/ultralytics_yolov5_master/requirements.txt && \
     rm -rf /tmp/pip* /root/.cached
 
 

@@ -21,7 +21,8 @@ class OIObjModel(BaseModel):
 
     def setup_oi_ids(self):
         self.oi_ids = set()
-        for class_idx, label in self.model.names.items():
+        names = {i: name for i, name in enumerate(self.model.names)}
+        for class_idx, label in names.items():
             if label.lower() in self.oi_label_list:
                 self.oi_ids.add(class_idx)
 
@@ -32,7 +33,7 @@ class OIObjModel(BaseModel):
 
     def setup(self):
         cpu_device = torch.device('cpu')
-        self.model = torch.hub.load('ultralytics/yolov5', OBJ_MODEL_NAME, pretrained=True)
+        self.model = torch.hub.load('/torchhome/hub/ultralytics_yolov5_master', OBJ_MODEL_NAME, pretrained=True, source='local')
         self.model.eval()
         self.setup_oi_ids()
 
