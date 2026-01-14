@@ -15,6 +15,13 @@ import uuid
 
 import cv2
 
+import lz4.frame as lz4
+
+
+# When you want to use QOI don't forget to uncomment the import line below:
+
+# import qoi
+
 try:
     from opentelemetry import trace
 except Exception:
@@ -102,7 +109,7 @@ class EventPublisher():
             self.parent_service.write_event_with_trace(event_data, self.bufferstream)
             self.logger.info(f'sending event_data "{event_data}", to buffer stream: "{self.buffer_stream_key}"')
 
-    # def generate_event_from_frame(self, frame, frame_index):
+    # def generate_event_from_frame(self, frame, frame_index, trace_id=None):
     #     # Get current UTC timestamp
     #     timestamp = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
 
@@ -149,28 +156,45 @@ class EventPublisher():
         timestamp = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
         event_id = f'{self.publisher_details["publisher_id"]}-{uuid.uuid4()}'
 
-        # Block comparison: N frames baseline, then N frames png_lossless
-        compare_blocks = os.getenv("COMPARE_BLOCKS", "1").strip().lower() in ("1", "true", "yes", "on")
-        block_size = int(os.getenv("COMPARE_BLOCK_SIZE", "50"))  # adjust for smoother graphs
+        # ---- Choose ONE mode for the whole run/video ----
+        # If IMAGE_MODE is set -> always use that (no block switching)
+        # Else, optionally fall back to compare blocks when enabled.
+        image_mode_env = os.getenv("IMAGE_MODE", "").strip().lower()
+        compare_blocks = os.getenv("COMPARE_BLOCKS", "0").strip().lower() in ("1", "true", "yes", "on")
+        block_size = int(os.getenv("COMPARE_BLOCK_SIZE", "50"))
 
-        if compare_blocks:
-            block = (frame_index // block_size) % 3
+        if image_mode_env:
+            image_mode = image_mode_env
+            compare_blocks = False  # force off, so it stays constant for the whole video/run
+        elif compare_blocks:
+            block = (frame_index // block_size) % 6
             if block == 0:
                 image_mode = "baseline"
             elif block == 1:
                 image_mode = "png_lossless"
-            else:
+            elif block == 2:
                 image_mode = "webp_lossless"
+            elif block == 3:
+                image_mode = "lz4_lossless"
+            elif block == 4:
+                image_mode = "qoi"
+            else:
+                image_mode = "JPEGXL"
         else:
-            image_mode = os.getenv("IMAGE_MODE", "baseline").strip().lower()
+            image_mode = "baseline"
 
         # PNG compression: 0 fastest (still lossless), 9 smallest (slow)
         png_level = int(os.getenv("PNG_COMPRESSION_LEVEL", "0"))
-        webp_quality = int(os.getenv("WEBP_QUALITY", "100"))  
+
+        # WebP settings
+        webp_quality = int(os.getenv("WEBP_QUALITY", "100"))
         webp_lossless = os.getenv("WEBP_LOSSLESS", "1").strip().lower() in ("1", "true", "yes", "on")
+        
+        lz4_param = [lz4.BLOCKSIZE_MAX4MB, lz4.COMPRESSIONLEVEL_MIN]
 
+        # LZ4 settings
+        lz4_level = int(os.getenv("LZ4_LEVEL", "0"))
 
-        # Jaeger/OpenTracing tracer
         tracer = getattr(self, "tracer", None) or getattr(getattr(self, "parent_service", None), "tracer", None)
 
         def _event(img_uri: str):
@@ -199,9 +223,6 @@ class EventPublisher():
                 span.set_tag("compare.block_index", frame_index // block_size)
 
         try:
-            # -------------------------
-            # BASELINE (existing path)
-            # -------------------------
             if image_mode == "baseline":
                 if span:
                     span.set_tag("image.lossless", False)
@@ -211,14 +232,15 @@ class EventPublisher():
                 img_uri = self.file_storage_cli.upload_inmemory_to_storage(frame)
                 t1 = time.time()
 
+                payload_bytes = frame.nbytes
+
                 if span:
                     span.set_tag("baseline.upload.ms", (t1 - t0) * 1000.0)
+                    span.set_tag("payload.bytes", payload_bytes)
+                   
 
                 return _event(img_uri)
 
-            # -------------------------
-            # PNG LOSSLESS
-            # -------------------------
             elif image_mode == "png_lossless":
                 if span:
                     span.set_tag("image.lossless", True)
@@ -249,30 +271,28 @@ class EventPublisher():
                     span.set_tag("payload.bytes", payload_bytes)
 
                 return _event(img_uri)
-            
-            # -------------------------
-            # WEBP (lossless)
-            # -------------------------
-            elif image_mode == "webp_lossless":
 
+            elif image_mode == "webp_lossless":
                 from PIL import Image
                 import io
 
                 if span:
                     span.set_tag("image.lossless", True)
                     span.set_tag("image.codec", "webp")
-                    span.set_tag("webp.lossless", True)
+                    span.set_tag("webp.lossless", bool(webp_lossless))
                     span.set_tag("webp.method", 0)
+                    span.set_tag("webp.quality", webp_quality)
 
                 enc0 = time.time()
-                img_rgb = frame[:, :, ::-1]
+                img_rgb = frame[:, :, ::-1]  # BGR -> RGB
 
                 buf = io.BytesIO()
                 Image.fromarray(img_rgb).save(
                     buf,
                     format="WEBP",
-                    lossless=True,
-                    method=0,     # 0 = fastest, 6 = slowest
+                    lossless=True if webp_lossless else False,
+                    quality=webp_quality,
+                    method=0,
                 )
 
                 webp_bytes = buf.getvalue()
@@ -296,6 +316,76 @@ class EventPublisher():
 
                 return _event(img_uri)
 
+            elif image_mode == "lz4":
+
+                if span:
+                    span.set_tag("image.lossless", True)
+                    span.set_tag("image.codec", "lz4")
+                    span.set_tag("lz4.blocksize", lz4_param[0])
+                    span.set_tag("lz4.comp", lz4_param[1])
+
+                enc0 = time.time()
+
+                lz4_bytes = lz4.compress(
+                    frame,
+                    block_size=lz4_param[0],
+                    compression_level=lz4_param[1]
+                )
+
+                enc1 = time.time()
+
+                payload_bytes = len(lz4_bytes)
+
+                up0 = time.time()
+                img_uri = str(uuid.uuid4())
+                self.file_storage_cli.client.set(
+                    name=img_uri,
+                    value=lz4_bytes,
+                    ex=self.file_storage_cli.expiration_time,
+                )
+                up1 = time.time()
+
+                if span:
+                    span.set_tag("encode.ms", (enc1 - enc0) * 1000.0)
+                    span.set_tag("upload.ms", (up1 - up0) * 1000.0)
+                    span.set_tag("payload.bytes", payload_bytes)
+
+                return _event(img_uri)
+            
+            # -------------------------
+            # QOI
+            # -------------------------
+            elif image_mode == "qoi":
+
+                if span:
+                    span.set_tag("image.lossless", True)
+                    span.set_tag("image.codec", "qoi")
+
+                enc0 = time.time()
+
+                qoi_bytes = qoi.encode(
+                    frame
+                )
+
+                enc1 = time.time()
+
+                payload_bytes = len(qoi_bytes)
+
+                up0 = time.time()
+                img_uri = str(uuid.uuid4())
+                self.file_storage_cli.client.set(
+                    name=img_uri,
+                    value=qoi_bytes,
+                    ex=self.file_storage_cli.expiration_time,
+                )
+                up1 = time.time()
+
+                if span:
+                    span.set_tag("encode.ms", (enc1 - enc0) * 1000.0)
+                    span.set_tag("upload.ms", (up1 - up0) * 1000.0)
+                    span.set_tag("payload.bytes", payload_bytes)
+
+                return _event(img_uri)
 
             else:
                 raise ValueError(f"Unknown image_mode: {image_mode}")
