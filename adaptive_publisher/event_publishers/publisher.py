@@ -181,7 +181,7 @@ class EventPublisher():
             else:
                 image_mode = "JPEGXL"
         else:
-            image_mode = "baseline"
+            image_mode = "webp_lossless"
 
         # PNG compression: 0 fastest (still lossless), 9 smallest (slow)
         png_level = int(os.getenv("PNG_COMPRESSION_LEVEL", "0"))
@@ -193,7 +193,7 @@ class EventPublisher():
         lz4_param = [lz4.BLOCKSIZE_MAX4MB, lz4.COMPRESSIONLEVEL_MIN]
 
         # LZ4 settings
-        lz4_level = int(os.getenv("LZ4_LEVEL", "0"))
+        # lz4_level = int(os.getenv("LZ4_LEVEL", "0"))
 
         tracer = getattr(self, "tracer", None) or getattr(getattr(self, "parent_service", None), "tracer", None)
 
@@ -316,7 +316,7 @@ class EventPublisher():
 
                 return _event(img_uri)
 
-            elif image_mode == "lz4":
+            elif image_mode == "lz4_lossless":
 
                 if span:
                     span.set_tag("image.lossless", True)
