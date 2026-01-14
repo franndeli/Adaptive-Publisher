@@ -26,6 +26,10 @@ services:
       context: '.'
       dockerfile: 'Dockerfile'
     network_mode: "host"
+    mem_limit: 4g
+    cpus: "1.0"
+    cpuset: "0"
+    cpu_shares: 256
     environment:
       - PYTHONUNBUFFERED=0
       - REDIS_ADDRESS=${REDIS_ADDRESS}
