@@ -10,6 +10,7 @@ from event_service_utils.services.event_driven import BaseEventDrivenCMDService
 from event_service_utils.tracing.jaeger import init_tracer
 
 from adaptive_publisher.event_publishers.publisher import EventPublisher
+from adaptive_publisher.event_publishers.batched_publisher import MicroBatchingEventPublisher
 
 from adaptive_publisher.conf import (
     LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED,
@@ -20,6 +21,9 @@ from adaptive_publisher.conf import (
     DEFAULT_THRESHOLDS,
     DEFAULT_TARGET_FPS,
     IGNORE_SEND_IMAGE,
+    USE_MICRO_BATCHING,
+    BATCH_SIZE,
+    BATCH_TIMEOUT,
 )
 from adaptive_publisher.event_generators import OCVEventGenerator, LocalOCVEventGenerator, MockedEventGenerator
 
@@ -109,29 +113,65 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                     }
                     for tag, value in tracer_tags.items():
                         scope.span.set_tag(tag, value)
+
                     init_time = time.perf_counter()
+
+                    # --- READ FRAME (measure + tag) ---
+                    t_read0 = time.perf_counter()
                     frame = self.event_generator.read_next_frame_or_drop()
-                    if frame is not None:
-                        if not IGNORE_SEND_IMAGE:
-                            tracer_headers = {}
-                            self.tracer.inject(scope.span, Format.HTTP_HEADERS, tracer_headers)
-                            trace_id = tracer_headers['uber-trace-id']
+                    read_ms = (time.perf_counter() - t_read0) * 1000
+
+                    frame_idx = self.event_generator.current_frame_index
+                    scope.span.set_tag("frame_index", frame_idx)
+                    scope.span.set_tag("read_ms", read_ms)
+
+                    self.logger.debug(f"[DATA] read idx={frame_idx} read_ms={read_ms:.2f} frame_none={frame is None}")
+
+                    if frame is not None and not IGNORE_SEND_IMAGE:
+                        # --- TRACE ID FOR THIS FRAME ---
+                        tracer_headers = {}
+                        self.tracer.inject(scope.span, Format.HTTP_HEADERS, tracer_headers)
+                        trace_id = tracer_headers["uber-trace-id"]
+                        scope.span.set_tag("trace_id", trace_id)
+
+                        # --- HANDOFF TO PUBLISHER (measure wait + include handoff timestamp) ---
+                        with self.tracer.start_active_span("handoff_to_publisher", child_of=scope.span) as h:
+                            t_wait0 = time.perf_counter()
+
                             with self.publisher.condition:
                                 while not self.publisher.frame_sent:
                                     self.publisher.condition.wait()
 
-                                self.publisher.frame_data = (frame, self.event_generator.current_frame_index, trace_id)
+                            wait_ms = (time.perf_counter() - t_wait0) * 1000
+                            h.span.set_tag("wait_ms", wait_ms)
+
+                            handoff_ts = time.perf_counter()
+                            h.span.set_tag("handoff_ts", handoff_ts)
+
+                            with self.publisher.condition:
+                                # NOTE: now passing 4-tuple (frame, idx, trace_id, handoff_ts)
+                                self.publisher.frame_data = (frame, frame_idx, trace_id, handoff_ts)
                                 self.publisher.frame_ready = True
                                 self.publisher.frame_sent = False
                                 self.publisher.condition.notify()
-                    else:
-                        self.logger.info(f'Event filtered')
 
+                            self.logger.debug(f"[DATA] handoff idx={frame_idx} wait_ms={wait_ms:.2f} trace_id={trace_id}")
+
+                    else:
+                        self.logger.info("Event filtered (frame is None) or IGNORE_SEND_IMAGE=True")
+
+                    # --- FPS PACING (make it visible in Jaeger) ---
                     current_time = time.perf_counter()
                     elapsed_time = current_time - init_time
                     sleep_time = max(0, self.event_generator.frame_delay - elapsed_time)
-                    # ensure correct FPS (e.g., avoid reading frames too fast from disk)
-                    time.sleep(sleep_time)
+
+                    scope.span.set_tag("frame_delay_s", self.event_generator.frame_delay)
+                    scope.span.set_tag("sleep_time_s", sleep_time)
+
+                    with self.tracer.start_active_span("frame_pacing_sleep", child_of=scope.span) as ps:
+                        ps.span.set_tag("sleep_time_s", sleep_time)
+                        time.sleep(sleep_time)
+
 
         except KeyboardInterrupt as ke:
             self.event_generator.close()
@@ -163,12 +203,26 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
             # only one query for now
             # in the future we should change to run the cmd in parallel and add more query_ids to a bufferstream
             # and add more bufferstreams for different queries on this publisher.
-            self.publisher = EventPublisher(
-                parent_service=self,
-                publisher_details=self.event_generator.publisher_details,
-                query_ids=[query_id],
-                buffer_stream_key=buffer_stream_key
-            )
+            
+            # Use micro-batching publisher if enabled
+            if USE_MICRO_BATCHING:
+                self.publisher = MicroBatchingEventPublisher(
+                    parent_service=self,
+                    publisher_details=self.event_generator.publisher_details,
+                    query_ids=[query_id],
+                    buffer_stream_key=buffer_stream_key,
+                    batch_size=BATCH_SIZE,
+                    batch_timeout=BATCH_TIMEOUT
+                )
+                self.logger.info(f'Using micro-batching with batch_size={BATCH_SIZE}, batch_timeout={BATCH_TIMEOUT}')
+            else:
+                self.publisher = EventPublisher(
+                    parent_service=self,
+                    publisher_details=self.event_generator.publisher_details,
+                    query_ids=[query_id],
+                    buffer_stream_key=buffer_stream_key
+                )
+                self.logger.info('Using standard event publisher (no batching)')
 
     def process_event_type(self, event_type, event_data, json_msg):
         if not super(AdaptivePublisher, self).process_event_type(event_type, event_data, json_msg):
@@ -217,8 +271,11 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
         except Exception as e:
             self.logger.exception(e)
         finally:
+            # Flush any remaining batched events before shutdown
+            if USE_MICRO_BATCHING and hasattr(self.publisher, 'flush'):
+                self.publisher.flush()
+            
             self.data_thread.join()
             self.pub_thread.join()
             self.log_state()
             self.experiment_temporary_exit_data_gathering()
-

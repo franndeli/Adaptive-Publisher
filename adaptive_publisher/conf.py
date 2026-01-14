@@ -115,5 +115,5 @@ LOGGING_LEVEL = config('LOGGING_LEVEL', default='DEBUG')
 
 # Micro-batching configuration
 USE_MICRO_BATCHING = config('USE_MICRO_BATCHING', default=True, cast=bool)
-BATCH_SIZE = config('BATCH_SIZE', default=3, cast=int)
+BATCH_SIZE = config('BATCH_SIZE', default=4, cast=int)
 BATCH_TIMEOUT = config('BATCH_TIMEOUT', default=0.5, cast=float)  # seconds
