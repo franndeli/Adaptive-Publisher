@@ -3,11 +3,11 @@ import requests
 import pandas as pd
 
 BASE = "http://localhost:16686"
-SERVICE = "AdaptivePublisher"   # exact zoals in /api/services
+SERVICE = "AdaptivePublisher"   # exact as in /api/services
 LIMIT = 10000
 
 # --- CONFIG ---
-INPUT_JSON = "traces_AdaptivePublisher.json"   # pas aan naar jouw exportbestand
+INPUT_JSON = "traces_AdaptivePublisher.json"  
 OPERATION = "encode_and_store_frame"
 
 def get_services():
@@ -42,7 +42,7 @@ def spans_to_df(traces):
                 "encode_ms": tags.get("encode.ms"),                 # for png/webp/lz4
                 "upload_ms": tags.get("upload.ms"),                 # for png/webp/lz4
                 "baseline_upload_ms": tags.get("baseline.upload.ms"),# for baseline
-                "payload_bytes": tags.get("payload.bytes"),         # for png/webp/lz4 (baseline often missing)
+                "payload_bytes": tags.get("payload.bytes"),         # for png/webp/lz4 
             })
 
     df = pd.DataFrame(rows)
@@ -108,7 +108,6 @@ def main():
         print("No matching spans found. Check OPERATION name or ensure that code path ran.")
         return
 
-    # Save raw rows for your own digging
     df.to_csv("spans_by_image_mode.csv", index=False)
     print("Wrote spans_by_image_mode.csv")
 
@@ -119,14 +118,7 @@ def main():
     summary.to_csv("summary_by_image_mode.csv")
     print("\nWrote summary_by_image_mode.csv")
 
-    # Quick direct baseline vs lz4 comparison if both exist
-    modes = set(df["image_mode"].dropna().unique())
-    if "baseline" in modes and "lz4_lossless" in modes:
-        sub = summary.loc[["baseline", "lz4_lossless"]]
-        print("\n=== Baseline vs LZ4 ===")
-        print(sub.round(3))
-    else:
-        print("\nNote: baseline and/or lz4_lossless not both present in this export.")
+
 
 if __name__ == "__main__":
     main()
