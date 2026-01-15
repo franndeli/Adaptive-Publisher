@@ -183,7 +183,7 @@ class EventPublisher():
             else:
                 image_mode = "jpegls_lossless"
         else:
-            image_mode = "webp_lossless"
+            image_mode = "jpegxl_lossless"
 
         # PNG compression: 0 fastest (still lossless), 9 smallest (slow)
         png_level = int(os.getenv("PNG_COMPRESSION_LEVEL", "0"))
@@ -432,7 +432,7 @@ class EventPublisher():
                     span.set_tag("upload.ms", (up1 - up0) * 1000.0)
                     span.set_tag("payload.bytes", payload_bytes)
 
-                return _event(img_uri, payload_bytes=payload_bytes)
+                return _event(img_uri)
 
             # -------------------------
             # JPEG-LS (lossless)
@@ -480,7 +480,7 @@ class EventPublisher():
                     span.set_tag("upload.ms", (up1 - up0) * 1000.0)
                     span.set_tag("payload.bytes", payload_bytes)
 
-                return _event(img_uri, payload_bytes=payload_bytes)
+                return _event(img_uri)
 
             else:
                 raise ValueError(f"Unknown image_mode: {image_mode}")
