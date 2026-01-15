@@ -178,8 +178,10 @@ class EventPublisher():
                 image_mode = "lz4_lossless"
             elif block == 4:
                 image_mode = "qoi"
+            elif block == 5:
+                image_mode = "jpegxl_lossless"
             else:
-                image_mode = "JPEGXL"
+                image_mode = "jpegls_lossless"
         else:
             image_mode = "webp_lossless"
 
@@ -192,8 +194,10 @@ class EventPublisher():
         
         lz4_param = [lz4.BLOCKSIZE_MAX4MB, lz4.COMPRESSIONLEVEL_MIN]
 
-        # LZ4 settings
-        # lz4_level = int(os.getenv("LZ4_LEVEL", "0"))
+        # JPEG-XL params (lossless)
+        jxl_effort = int(os.getenv("JXL_EFFORT", "1"))  # 1..9 (higher => slower, smalle
+        # JPEG-LS params (near=0 means lossless; some builds may not expose 'near')
+        jls_near = int(os.getenv("JLS_NEAR", "0"))
 
         tracer = getattr(self, "tracer", None) or getattr(getattr(self, "parent_service", None), "tracer", None)
 
@@ -386,6 +390,97 @@ class EventPublisher():
                     span.set_tag("payload.bytes", payload_bytes)
 
                 return _event(img_uri)
+
+            # -------------------------
+            # JPEG-XL (lossless)
+            # -------------------------
+            elif image_mode == "jpegxl_lossless":
+                if span:
+                    span.set_tag("image.lossless", True)
+                    span.set_tag("image.codec", "jpegxl")
+                    span.set_tag("jxl.level", 0)
+                    span.set_tag("jxl.effort", jxl_effort)
+
+                try:
+                    import imagecodecs
+                except Exception as e:
+                    raise RuntimeError("JPEG-XL selected but imagecodecs is not importable.") from e
+
+                if not hasattr(imagecodecs, "jpegxl_encode"):
+                    raise RuntimeError("imagecodecs.jpegxl_encode not available (no JPEG-XL support).")
+
+                enc0 = time.time()
+                img_rgb = frame[:, :, ::-1]  # BGR -> RGB
+                jxl_bytes = imagecodecs.jpegxl_encode(img_rgb, level=0, effort=jxl_effort)
+                jxl_bytes = bytes(jxl_bytes)
+
+                enc1 = time.time()
+
+                payload_bytes = len(jxl_bytes)
+
+                up0 = time.time()
+                img_uri = str(uuid.uuid4())
+                self.file_storage_cli.client.set(
+                    name=img_uri,
+                    value=jxl_bytes,
+                    ex=self.file_storage_cli.expiration_time,
+                )
+                up1 = time.time()
+
+                if span:
+                    span.set_tag("encode.ms", (enc1 - enc0) * 1000.0)
+                    span.set_tag("upload.ms", (up1 - up0) * 1000.0)
+                    span.set_tag("payload.bytes", payload_bytes)
+
+                return _event(img_uri, payload_bytes=payload_bytes)
+
+            # -------------------------
+            # JPEG-LS (lossless)
+            # -------------------------
+            elif image_mode == "jpegls_lossless":
+                if span:
+                    span.set_tag("image.lossless", True)
+                    span.set_tag("image.codec", "jpegls")
+                    span.set_tag("jls.near", jls_near)
+
+                try:
+                    import imagecodecs
+                except Exception as e:
+                    raise RuntimeError("JPEG-LS selected but imagecodecs is not importable.") from e
+
+                if not hasattr(imagecodecs, "jpegls_encode"):
+                    raise RuntimeError("imagecodecs.jpegls_encode not available (no JPEG-LS support).")
+
+                enc0 = time.time()
+                img_rgb = frame[:, :, ::-1]  # BGR -> RGB
+
+                # Some builds support `near=...`, others don't — handle both.
+                try:
+                    jls_bytes = imagecodecs.jpegls_encode(img_rgb, near=jls_near)
+                    jls_bytes = bytes(jls_bytes)
+
+                except TypeError:
+                    jls_bytes = imagecodecs.jpegls_encode(img_rgb)
+
+                enc1 = time.time()
+
+                payload_bytes = len(jls_bytes)
+
+                up0 = time.time()
+                img_uri = str(uuid.uuid4())
+                self.file_storage_cli.client.set(
+                    name=img_uri,
+                    value=jls_bytes,
+                    ex=self.file_storage_cli.expiration_time,
+                )
+                up1 = time.time()
+
+                if span:
+                    span.set_tag("encode.ms", (enc1 - enc0) * 1000.0)
+                    span.set_tag("upload.ms", (up1 - up0) * 1000.0)
+                    span.set_tag("payload.bytes", payload_bytes)
+
+                return _event(img_uri, payload_bytes=payload_bytes)
 
             else:
                 raise ValueError(f"Unknown image_mode: {image_mode}")
