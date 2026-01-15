@@ -18,6 +18,7 @@ services:
 
   service:
     image: arruda/adaptive-publisher:master
+    platform: linux/amd64
     command: ./adaptive_publisher/run.py
     depends_on:
       - redis
