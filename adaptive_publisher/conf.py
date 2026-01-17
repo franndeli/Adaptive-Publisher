@@ -115,5 +115,10 @@ LOGGING_LEVEL = config('LOGGING_LEVEL', default='DEBUG')
 
 # Micro-batching configuration
 USE_MICRO_BATCHING = config('USE_MICRO_BATCHING', default=True, cast=bool)
-BATCH_SIZE = config('BATCH_SIZE', default=4, cast=int)
+BATCH_SIZE = config('BATCH_SIZE', default=3, cast=int)
 BATCH_TIMEOUT = config('BATCH_TIMEOUT', default=0.5, cast=float)  # seconds
+
+# Experiment configuration
+EXPERIMENT_NUM_FRAMES = config('EXPERIMENT_NUM_FRAMES', default=0, cast=int)  # 0 = no limit
+COLLECT_EXPERIMENT_METRICS = config('COLLECT_EXPERIMENT_METRICS', default=True, cast=bool)
+EXPERIMENT_OUTPUT_DIR = config('EXPERIMENT_OUTPUT_DIR', default=os.path.join(PROJECT_ROOT, 'data', 'experiment_results'))

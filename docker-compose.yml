@@ -18,13 +18,13 @@ services:
 
   service:
     # image: arruda/adaptive-publisher:master
-    # command: ./adaptive_publisher/run.py
     # # depends_on:
     # #   - redis
     # #   - jaeger
     build:
       context: '.'
       dockerfile: 'Dockerfile'
+    command: python ./adaptive_publisher/run.py
     network_mode: "host"
     mem_limit: 4g
     cpus: "1.0"
@@ -61,9 +61,17 @@ services:
       # - REDUCE_SCALE=${REDUCE_SCALE}
       # - PUB_QUEUE_MAX_SIZE=${PUB_QUEUE_MAX_SIZE}
       - LOGGING_LEVEL=${LOGGING_LEVEL}
+      # Micro-batching configuration
+      - USE_MICRO_BATCHING=${USE_MICRO_BATCHING:-True}
+      - BATCH_SIZE=${BATCH_SIZE:-3}
+      - BATCH_TIMEOUT=${BATCH_TIMEOUT:-0.5}
+      # Experiment configuration
+      - COLLECT_EXPERIMENT_METRICS=${COLLECT_EXPERIMENT_METRICS:-True}
+      - EXPERIMENT_NUM_FRAMES=${EXPERIMENT_NUM_FRAMES:-0}
     volumes:
       - ./data:/service/data
       - ./adaptive_publisher:/service/adaptive_publisher
+      - ./experiments:/service/experiments
 #      - /etc/localtime:/etc/localtime:ro
 #      - /media/arruda/Elements1/Datasets/Cut/TS-D-Q-1.mp4:/data/TS-D-Q-1.mp4
 #      - /media/arruda/Elements1/Datasets/Cut/TS-D-B-2.mp4:/data/TS-D-B-2.mp4
