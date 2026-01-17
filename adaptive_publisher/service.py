@@ -2,6 +2,7 @@ import json
 import time
 import multiprocessing
 import threading
+import os
 
 from opentracing.ext import tags
 from opentracing.propagation import Format
@@ -24,8 +25,21 @@ from adaptive_publisher.conf import (
     USE_MICRO_BATCHING,
     BATCH_SIZE,
     BATCH_TIMEOUT,
+    COLLECT_EXPERIMENT_METRICS,
+    EXPERIMENT_OUTPUT_DIR,
+    EXPERIMENT_NUM_FRAMES,
+    PROJECT_ROOT,
 )
 from adaptive_publisher.event_generators import OCVEventGenerator, LocalOCVEventGenerator, MockedEventGenerator
+
+# Import metrics collector if available
+try:
+    from experiments.metrics_collector import MetricsCollector, ExperimentConfig
+    HAS_METRICS_COLLECTOR = True
+except ImportError:
+    HAS_METRICS_COLLECTOR = False
+    MetricsCollector = None
+    ExperimentConfig = None
 
 class AdaptivePublisher(BaseEventDrivenCMDService):
     def __init__(self,
@@ -71,7 +85,26 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
         self.publisher_parent_conn = None
         self.publisher_child_conn = None
         self.publisher = None
-
+        
+        # Initialize metrics collector for experiments
+        self.metrics_collector = None
+        self._setup_metrics_collector()
+    
+    def _setup_metrics_collector(self):
+        """Initialize metrics collector if experiment mode is enabled."""
+        if COLLECT_EXPERIMENT_METRICS and HAS_METRICS_COLLECTOR:
+            config = ExperimentConfig(
+                batch_size=BATCH_SIZE if USE_MICRO_BATCHING else 1,
+                batch_timeout=BATCH_TIMEOUT if USE_MICRO_BATCHING else 0,
+                num_frames=EXPERIMENT_NUM_FRAMES,
+                fps=self.publisher_configs.get('fps', DEFAULT_TARGET_FPS),
+                resolution=f"{self.publisher_configs.get('width', 1920)}x{self.publisher_configs.get('height', 1080)}",
+                publisher_id=self.publisher_configs.get('id', 'unknown'),
+                source=self.publisher_configs.get('input_source', 'unknown'),
+                use_micro_batching=USE_MICRO_BATCHING
+            )
+            self.metrics_collector = MetricsCollector(config)
+            self.logger.info(f'📊 Metrics collector initialized (batch_size={config.batch_size})')
 
     def setup_event_generator(self):
         self.event_generator = self.available_event_generators[self.event_generator_type](
@@ -128,34 +161,26 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                     self.logger.debug(f"[DATA] read idx={frame_idx} read_ms={read_ms:.2f} frame_none={frame is None}")
 
                     if frame is not None and not IGNORE_SEND_IMAGE:
+                        # Record frame read timestamp for latency measurement
+                        frame_read_ts = t_read0
+                        if self.publisher and hasattr(self.publisher, 'record_frame_read'):
+                            self.publisher.record_frame_read(frame_idx, frame_read_ts)
+                        
                         # --- TRACE ID FOR THIS FRAME ---
                         tracer_headers = {}
                         self.tracer.inject(scope.span, Format.HTTP_HEADERS, tracer_headers)
                         trace_id = tracer_headers["uber-trace-id"]
                         scope.span.set_tag("trace_id", trace_id)
 
-                        # --- HANDOFF TO PUBLISHER (measure wait + include handoff timestamp) ---
-                        with self.tracer.start_active_span("handoff_to_publisher", child_of=scope.span) as h:
-                            t_wait0 = time.perf_counter()
+                        # --- DIRECT HANDOFF (simplified, no threading) ---
+                        handoff_ts = time.perf_counter()
+                        scope.span.set_tag("handoff_ts", handoff_ts)
+                        
+                        # Store frame data for publisher.run() to pick up
+                        self.publisher.frame_data = (frame, frame_idx, trace_id, handoff_ts)
+                        self.publisher.frame_ready = True
 
-                            with self.publisher.condition:
-                                while not self.publisher.frame_sent:
-                                    self.publisher.condition.wait()
-
-                            wait_ms = (time.perf_counter() - t_wait0) * 1000
-                            h.span.set_tag("wait_ms", wait_ms)
-
-                            handoff_ts = time.perf_counter()
-                            h.span.set_tag("handoff_ts", handoff_ts)
-
-                            with self.publisher.condition:
-                                # NOTE: now passing 4-tuple (frame, idx, trace_id, handoff_ts)
-                                self.publisher.frame_data = (frame, frame_idx, trace_id, handoff_ts)
-                                self.publisher.frame_ready = True
-                                self.publisher.frame_sent = False
-                                self.publisher.condition.notify()
-
-                            self.logger.debug(f"[DATA] handoff idx={frame_idx} wait_ms={wait_ms:.2f} trace_id={trace_id}")
+                        self.logger.debug(f"[DATA] handoff idx={frame_idx} trace_id={trace_id}")
 
                     else:
                         self.logger.info("Event filtered (frame is None) or IGNORE_SEND_IMAGE=True")
@@ -204,6 +229,11 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
             # in the future we should change to run the cmd in parallel and add more query_ids to a bufferstream
             # and add more bufferstreams for different queries on this publisher.
             
+            # Start metrics collection if enabled
+            if self.metrics_collector:
+                self.metrics_collector.start_experiment()
+                self.logger.info('📊 Experiment metrics collection started')
+            
             # Use micro-batching publisher if enabled
             if USE_MICRO_BATCHING:
                 self.publisher = MicroBatchingEventPublisher(
@@ -212,7 +242,8 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                     query_ids=[query_id],
                     buffer_stream_key=buffer_stream_key,
                     batch_size=BATCH_SIZE,
-                    batch_timeout=BATCH_TIMEOUT
+                    batch_timeout=BATCH_TIMEOUT,
+                    metrics_collector=self.metrics_collector
                 )
                 self.logger.info(f'Using micro-batching with batch_size={BATCH_SIZE}, batch_timeout={BATCH_TIMEOUT}')
             else:
@@ -220,7 +251,8 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                     parent_service=self,
                     publisher_details=self.event_generator.publisher_details,
                     query_ids=[query_id],
-                    buffer_stream_key=buffer_stream_key
+                    buffer_stream_key=buffer_stream_key,
+                    metrics_collector=self.metrics_collector
                 )
                 self.logger.info('Using standard event publisher (no batching)')
 
@@ -249,6 +281,51 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
         new_event_data.update(self.event_generator.publisher_details)
         self.publish_event_type_to_stream(event_type=PUB_EVENT_TYPE_PUBLISHER_CREATED, new_event_data=new_event_data)
 
+    def _save_experiment_metrics(self):
+        """Save experiment metrics to file."""
+        self.logger.info('_save_experiment_metrics called')
+        
+        if not self.metrics_collector:
+            self.logger.info('No metrics_collector available - skipping save')
+            return
+            
+        self.logger.info(f'Metrics collector has {len(self.metrics_collector.frame_metrics)} frames')
+        self.logger.info(f'Metrics collector has {len(self.metrics_collector.batch_metrics)} batches')
+        
+        self.metrics_collector.end_experiment()
+        
+        # Create output directory
+        output_dir = EXPERIMENT_OUTPUT_DIR
+        self.logger.info(f'Creating output directory: {output_dir}')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Save report
+        try:
+            report_path = self.metrics_collector.save_report()
+            self.logger.info(f'📊 Experiment metrics saved to: {report_path}')
+        except Exception as e:
+            self.logger.error(f'Error saving report: {e}')
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return
+        
+        # Log summary
+        latency_stats = self.metrics_collector.get_latency_stats()
+        throughput_stats = self.metrics_collector.get_throughput_stats()
+        network_stats = self.metrics_collector.get_network_efficiency_stats()
+        
+        self.logger.info('='*60)
+        self.logger.info('📊 EXPERIMENT RESULTS SUMMARY')
+        self.logger.info('='*60)
+        self.logger.info(f'  Throughput: {throughput_stats.get("overall_throughput_fps", 0):.2f} FPS')
+        self.logger.info(f'  Mean Latency: {latency_stats.get("mean_ms", 0):.2f} ms')
+        self.logger.info(f'  p90 Latency: {latency_stats.get("p90_ms", 0):.2f} ms')
+        self.logger.info(f'  p99 Latency: {latency_stats.get("p99_ms", 0):.2f} ms')
+        self.logger.info(f'  Network Reduction: {network_stats.get("network_reduction_percent", 0):.1f}%')
+        self.logger.info(f'  Total Frames: {throughput_stats.get("total_frames", 0)}')
+        self.logger.info(f'  Total Batches: {throughput_stats.get("total_batches", 0)}')
+        self.logger.info('='*60)
+
     def run(self):
         super(AdaptivePublisher, self).run()
         self.log_state()
@@ -263,19 +340,52 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
             self.logger.debug('No query to publish data to, will exit')
             return
 
+        # Simple loop: process data and publish until video ends
+        video_finished = False
+        frames_processed = 0
+        
         try:
-            self.data_thread = threading.Thread(target=self.run_forever, args=(self.process_data,))
-            self.pub_thread = threading.Thread(target=self.run_forever, args=(self.publisher.run,))
-            self.data_thread.start()
-            self.pub_thread.start()
+            while not video_finished:
+                try:
+                    # Process one frame
+                    self.process_data()
+                    frames_processed += 1
+                    
+                    # Run publisher for this frame
+                    self.publisher.run()
+                    
+                except KeyboardInterrupt:
+                    self.logger.info(f'Video ended after {frames_processed} frames')
+                    video_finished = True
+                    
         except Exception as e:
-            self.logger.exception(e)
+            self.logger.exception(f'Error during processing: {e}')
         finally:
-            # Flush any remaining batched events before shutdown
-            if USE_MICRO_BATCHING and hasattr(self.publisher, 'flush'):
-                self.publisher.flush()
+            self.logger.info('='*60)
+            self.logger.info('VIDEO PROCESSING COMPLETE - SAVING METRICS')
+            self.logger.info('='*60)
             
-            self.data_thread.join()
-            self.pub_thread.join()
+            # Flush any remaining batched events
+            if self.publisher and hasattr(self.publisher, 'flush'):
+                try:
+                    self.logger.info('Flushing remaining frames...')
+                    self.publisher.flush()
+                except Exception as e:
+                    self.logger.error(f'Error flushing publisher: {e}')
+            
             self.log_state()
-            self.experiment_temporary_exit_data_gathering()
+            
+            try:
+                self.experiment_temporary_exit_data_gathering()
+            except Exception as e:
+                self.logger.error(f'Error saving experiment data: {e}')
+            
+            # Save experiment metrics
+            try:
+                self._save_experiment_metrics()
+            except Exception as e:
+                self.logger.error(f'Error saving experiment metrics: {e}')
+            
+            self.logger.info('='*60)
+            self.logger.info('SHUTDOWN COMPLETE')
+            self.logger.info('='*60)
