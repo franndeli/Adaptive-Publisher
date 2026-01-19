@@ -12,6 +12,7 @@ from event_service_utils.tracing.jaeger import init_tracer
 
 from adaptive_publisher.event_publishers.publisher import EventPublisher
 from adaptive_publisher.event_publishers.batched_publisher import MicroBatchingEventPublisher
+from adaptive_publisher.event_publishers.adaptive_batched_publisher import AdaptiveBatchingEventPublisher
 
 from adaptive_publisher.conf import (
     LISTEN_EVENT_TYPE_EARLY_FILTERING_UPDATED,
@@ -25,6 +26,11 @@ from adaptive_publisher.conf import (
     USE_MICRO_BATCHING,
     BATCH_SIZE,
     BATCH_TIMEOUT,
+    USE_ADAPTIVE_BATCHING,
+    ADAPTIVE_MIN_BATCH_SIZE,
+    ADAPTIVE_MAX_BATCH_SIZE,
+    ADAPTIVE_INITIAL_BATCH_SIZE,
+    ADAPTIVE_TARGET_BATCH_TIME_MS,
     COLLECT_EXPERIMENT_METRICS,
     EXPERIMENT_OUTPUT_DIR,
     EXPERIMENT_NUM_FRAMES,
@@ -94,17 +100,23 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
         """Initialize metrics collector if experiment mode is enabled."""
         if COLLECT_EXPERIMENT_METRICS and HAS_METRICS_COLLECTOR:
             config = ExperimentConfig(
-                batch_size=BATCH_SIZE if USE_MICRO_BATCHING else 1,
-                batch_timeout=BATCH_TIMEOUT if USE_MICRO_BATCHING else 0,
+                batch_size=BATCH_SIZE if USE_MICRO_BATCHING else (ADAPTIVE_INITIAL_BATCH_SIZE if USE_ADAPTIVE_BATCHING else 1),
+                batch_timeout=BATCH_TIMEOUT if (USE_MICRO_BATCHING or USE_ADAPTIVE_BATCHING) else 0,
                 num_frames=EXPERIMENT_NUM_FRAMES,
                 fps=self.publisher_configs.get('fps', DEFAULT_TARGET_FPS),
                 resolution=f"{self.publisher_configs.get('width', 1920)}x{self.publisher_configs.get('height', 1080)}",
                 publisher_id=self.publisher_configs.get('id', 'unknown'),
                 source=self.publisher_configs.get('input_source', 'unknown'),
-                use_micro_batching=USE_MICRO_BATCHING
+                use_micro_batching=USE_MICRO_BATCHING,
+                use_adaptive_batching=USE_ADAPTIVE_BATCHING,
+                adaptive_min_batch_size=ADAPTIVE_MIN_BATCH_SIZE,
+                adaptive_max_batch_size=ADAPTIVE_MAX_BATCH_SIZE,
+                adaptive_initial_batch_size=ADAPTIVE_INITIAL_BATCH_SIZE,
+                adaptive_target_batch_time_ms=ADAPTIVE_TARGET_BATCH_TIME_MS,
             )
             self.metrics_collector = MetricsCollector(config)
-            self.logger.info(f'📊 Metrics collector initialized (batch_size={config.batch_size})')
+            exp_type = config.experiment_type
+            self.logger.info(f'📊 Metrics collector initialized (type={exp_type}, batch_size={config.batch_size})')
 
     def setup_event_generator(self):
         self.event_generator = self.available_event_generators[self.event_generator_type](
@@ -234,8 +246,27 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                 self.metrics_collector.start_experiment()
                 self.logger.info('📊 Experiment metrics collection started')
             
-            # Use micro-batching publisher if enabled
-            if USE_MICRO_BATCHING:
+            # Choose publisher type based on configuration
+            if USE_ADAPTIVE_BATCHING:
+                # Adaptive batching: dynamically adjusts batch size
+                self.publisher = AdaptiveBatchingEventPublisher(
+                    parent_service=self,
+                    publisher_details=self.event_generator.publisher_details,
+                    query_ids=[query_id],
+                    buffer_stream_key=buffer_stream_key,
+                    min_batch_size=ADAPTIVE_MIN_BATCH_SIZE,
+                    max_batch_size=ADAPTIVE_MAX_BATCH_SIZE,
+                    initial_batch_size=ADAPTIVE_INITIAL_BATCH_SIZE,
+                    batch_timeout=BATCH_TIMEOUT,
+                    target_batch_time_ms=ADAPTIVE_TARGET_BATCH_TIME_MS,
+                    metrics_collector=self.metrics_collector
+                )
+                self.logger.info(
+                    f'Using ADAPTIVE batching: min={ADAPTIVE_MIN_BATCH_SIZE}, '
+                    f'max={ADAPTIVE_MAX_BATCH_SIZE}, initial={ADAPTIVE_INITIAL_BATCH_SIZE}'
+                )
+            elif USE_MICRO_BATCHING:
+                # Fixed micro-batching
                 self.publisher = MicroBatchingEventPublisher(
                     parent_service=self,
                     publisher_details=self.event_generator.publisher_details,
@@ -245,8 +276,9 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
                     batch_timeout=BATCH_TIMEOUT,
                     metrics_collector=self.metrics_collector
                 )
-                self.logger.info(f'Using micro-batching with batch_size={BATCH_SIZE}, batch_timeout={BATCH_TIMEOUT}')
+                self.logger.info(f'Using FIXED micro-batching: batch_size={BATCH_SIZE}, timeout={BATCH_TIMEOUT}')
             else:
+                # No batching (baseline)
                 self.publisher = EventPublisher(
                     parent_service=self,
                     publisher_details=self.event_generator.publisher_details,
@@ -340,19 +372,32 @@ class AdaptivePublisher(BaseEventDrivenCMDService):
             self.logger.debug('No query to publish data to, will exit')
             return
 
-        # Simple loop: process data and publish until video ends
+        # Simple loop: process data and publish until video ends or frame limit reached
         video_finished = False
         frames_processed = 0
+        max_frames = EXPERIMENT_NUM_FRAMES if EXPERIMENT_NUM_FRAMES > 0 else float('inf')
+        
+        self.logger.info(f'Starting processing (max_frames={max_frames})')
         
         try:
             while not video_finished:
                 try:
+                    # Check frame limit
+                    if frames_processed >= max_frames:
+                        self.logger.info(f'Reached frame limit ({max_frames}), stopping...')
+                        video_finished = True
+                        break
+                    
                     # Process one frame
                     self.process_data()
                     frames_processed += 1
                     
                     # Run publisher for this frame
                     self.publisher.run()
+                    
+                    # Log progress every 100 frames
+                    if frames_processed % 100 == 0:
+                        self.logger.info(f'Processed {frames_processed}/{max_frames} frames')
                     
                 except KeyboardInterrupt:
                     self.logger.info(f'Video ended after {frames_processed} frames')

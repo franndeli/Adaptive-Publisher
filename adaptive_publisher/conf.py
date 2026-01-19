@@ -118,7 +118,21 @@ USE_MICRO_BATCHING = config('USE_MICRO_BATCHING', default=True, cast=bool)
 BATCH_SIZE = config('BATCH_SIZE', default=3, cast=int)
 BATCH_TIMEOUT = config('BATCH_TIMEOUT', default=0.5, cast=float)  # seconds
 
+# Adaptive batching configuration
+USE_ADAPTIVE_BATCHING = config('USE_ADAPTIVE_BATCHING', default=False, cast=bool)
+ADAPTIVE_MIN_BATCH_SIZE = config('ADAPTIVE_MIN_BATCH_SIZE', default=1, cast=int)
+ADAPTIVE_MAX_BATCH_SIZE = config('ADAPTIVE_MAX_BATCH_SIZE', default=10, cast=int)
+ADAPTIVE_INITIAL_BATCH_SIZE = config('ADAPTIVE_INITIAL_BATCH_SIZE', default=3, cast=int)
+ADAPTIVE_TARGET_BATCH_TIME_MS = config('ADAPTIVE_TARGET_BATCH_TIME_MS', default=150.0, cast=float)
+
 # Experiment configuration
 EXPERIMENT_NUM_FRAMES = config('EXPERIMENT_NUM_FRAMES', default=0, cast=int)  # 0 = no limit
 COLLECT_EXPERIMENT_METRICS = config('COLLECT_EXPERIMENT_METRICS', default=True, cast=bool)
 EXPERIMENT_OUTPUT_DIR = config('EXPERIMENT_OUTPUT_DIR', default=os.path.join(PROJECT_ROOT, 'data', 'experiment_results'))
+
+# Image compression configuration
+# Options: 'none' (baseline), 'lz4', 'qoi'
+IMAGE_COMPRESSION_MODE = config('IMAGE_COMPRESSION_MODE', default='none')
+
+# LZ4 compression settings
+LZ4_COMPRESSION_LEVEL = config('LZ4_COMPRESSION_LEVEL', default=0, cast=int)  # 0=fastest, higher=better compression

@@ -73,9 +73,24 @@ class ExperimentConfig:
     publisher_id: str
     source: str
     use_micro_batching: bool
+    use_adaptive_batching: bool = False
+    adaptive_min_batch_size: int = 1
+    adaptive_max_batch_size: int = 10
+    adaptive_initial_batch_size: int = 3
+    adaptive_target_batch_time_ms: float = 150.0
     
     def to_dict(self) -> dict:
         return asdict(self)
+    
+    @property
+    def experiment_type(self) -> str:
+        """Return the type of experiment."""
+        if self.use_adaptive_batching:
+            return "adaptive"
+        elif self.use_micro_batching:
+            return f"batch{self.batch_size}"
+        else:
+            return "baseline"
 
 
 class MetricsCollector:

@@ -29,6 +29,14 @@ from adaptive_publisher.conf import (
     TRACER_REPORTING_PORT,
     SERVICE_DETAILS,
     REDUCE_SCALE,
+    IMAGE_COMPRESSION_MODE,
+)
+
+# Import compression utilities
+from adaptive_publisher.compression import (
+    ImageCompressor,
+    upload_compressed_frame,
+    create_compressor_from_config,
 )
 
 
@@ -62,6 +70,11 @@ class EventPublisher():
         self._frame_start_times = {}  # frame_index -> start_time
         self._throughput_measurements = []
         self._frame_read_timestamps = {}  # For latency tracking
+        
+        # Initialize compression
+        self._compressor = create_compressor_from_config(self.logger)
+        if self._compressor:
+            self.logger.info(f'🗜️ Image compression enabled: mode={self._compressor.mode}')
 
     def record_frame_read(self, frame_index: int, read_timestamp: float):
         """Record when a frame was read (called from service for latency tracking)."""
@@ -190,16 +203,15 @@ class EventPublisher():
             if frame_index < 328:
                 self.file_storage_cli.expiration_time = 60
 
-        img_uri = self.file_storage_cli.upload_inmemory_to_storage(frame)
+        # Upload with optional compression
+        img_uri, compress_meta = upload_compressed_frame(
+            file_storage_cli=self.file_storage_cli,
+            frame=frame,
+            compressor=self._compressor,
+            tracer=self.tracer,
+            frame_index=frame_index,
+        )
 
-
-        # store_size = getsizeof(frame.tobytes(order='C'))
-        # store_size = self.file_storage_cli.client.execute_command(f'MEMORY USAGE {img_uri}')
-        # self.store_sizes.append(int(store_size))
-        # std = 0
-        # if len(self.store_sizes) > 1:
-        #     std = statistics.stdev(self.store_sizes)
-        # self.parent_service.logger.error(f'>>> total ({len(self.store_sizes)}) last_size: {store_size} >> avg sizes: {sum(self.store_sizes) / len(self.store_sizes)} | std: {std}')
         event_data = {
             'id': event_id,
             'publisher_id': self.publisher_details['publisher_id'],
@@ -212,6 +224,7 @@ class EventPublisher():
             'color_channels': self.color_channels,
             'frame_index': frame_index,
             'timestamp': timestamp,
+            'image_compression': compress_meta['mode'],  # Track compression mode used
         }
         return event_data
     
@@ -225,7 +238,7 @@ class EventPublisher():
         
         avg_throughput = total_frames / total_time if total_time > 0 else 0
         
-        return {
+        stats = {
             "avg_throughput_fps": avg_throughput,
             "total_frames": total_frames,
             "total_time_s": total_time,
@@ -233,6 +246,12 @@ class EventPublisher():
                 frames / time for frames, time in self._throughput_measurements
             ]
         }
+        
+        # Add compression stats if compression is enabled
+        if self._compressor:
+            stats["compression"] = self._compressor.get_stats()
+        
+        return stats
     
     def save_throughput_stats(self, filepath=None):
         """Save throughput statistics to JSON file."""

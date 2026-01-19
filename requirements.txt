@@ -12,4 +12,7 @@ python-decouple==3.1
 walrus==0.7.1
 gitdb==4.0.11
 gitpython==3.1.43
+lz4>=4.0.0
+# qoi - commented out due to numpy 2.0 requirement incompatible with Python 3.8
+# Install manually if using Python 3.9+: pip install qoi
 -e file:./#egg=adaptive_publisher

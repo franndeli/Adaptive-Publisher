@@ -44,6 +44,10 @@ class MicroBatchingEventPublisher(EventPublisher):
         # Throughput measurements
         self._throughput_measurements: List[Tuple[int, float]] = []
         
+        # Last batch metrics (for adaptive batching)
+        self._last_batch_total_time_ms: float = 0.0
+        self._last_batch_size: int = 0
+        
         # Per-frame timestamps for latency tracking
         self._frame_read_timestamps: dict = {}
 
@@ -151,6 +155,10 @@ class MicroBatchingEventPublisher(EventPublisher):
             total_time = batch_end - batch_start if batch_start else 0
             batch_throughput = len(items) / total_time if total_time > 0 else 0
             
+            # Store last batch metrics for adaptive batching
+            self._last_batch_total_time_ms = total_time * 1000  # Convert to ms
+            self._last_batch_size = len(items)
+            
             # Add metrics to span
             scope.span.set_tag("batch_total_time_s", total_time)
             scope.span.set_tag("batch_throughput_fps", batch_throughput)
@@ -220,13 +228,19 @@ class MicroBatchingEventPublisher(EventPublisher):
             for frames, t in self._throughput_measurements
         ]
         
-        return {
+        stats = {
             "avg_throughput_fps": avg_throughput,
             "total_batches": len(self._throughput_measurements),
             "total_frames": total_frames,
             "total_time_s": total_time,
             "batch_throughputs": batch_throughputs
         }
+        
+        # Add compression stats if compression is enabled
+        if self._compressor:
+            stats["compression"] = self._compressor.get_stats()
+        
+        return stats
     
     def save_throughput_stats(self, filepath=None):
         """Save stats to JSON."""
