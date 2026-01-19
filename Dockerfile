@@ -23,8 +23,6 @@ RUN mkdir -p /service/adaptive_publisher/ && \
 RUN pip install -r requirements.txt && \
     pip install -r /torchhome/hub/ultralytics_yolov5_master/requirements.txt && \
     rm -rf /tmp/pip* /root/.cached
-RUN pip install lz4
-RUN pip install qoi==0.6
 
 # /root/.cache/torch/hub/
 ## add all the rest of the code and install the actual package

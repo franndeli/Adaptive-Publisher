@@ -79,10 +79,15 @@ You can check the event traces at the Jaeger instance on http://localhost:16686/
 # License
 This projet is distributed under the AGPL license, see License file for more details.
 
+
+
+
+
 # Instructions
 1. Open docker desktop
 2. Rename `example.env` to `.env`
-3. put video and model files in `data/`
+3. put video and model files in `data/` (download from https://github.com/arruda/Early-Filtering-Gnosis-Setup/)
 4. run `docker-compose build`
 5. run `docker-compose up -d`
 6. run `docker-compose exec service python adaptive_publisher/send_msgs_test.py`
+7. see event traces at http://localhost:16686/
