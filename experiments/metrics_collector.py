@@ -348,7 +348,7 @@ class MetricsCollector:
             batch_label = f"batch{self.config.batch_size}" if self.config.use_micro_batching else "baseline"
             filepath = os.path.join(
                 results_dir, 
-                f'experiment_{batch_label}_{timestamp}.json'
+                f'experiment_{batch_label}_TS-D-Q-1.mp4_{timestamp}.json'
             )
         
         report = self.get_full_report()
